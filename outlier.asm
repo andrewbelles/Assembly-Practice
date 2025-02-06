@@ -21,8 +21,6 @@ main:
 
   mov rbx, [rsi + 8]          ; argv[1] is 8 bytes offset from rsi 
 
-  ; push r12
-
   ; ask os for 512 bytes for heap
   mov rax, 9 
   xor rdi, rdi
@@ -69,6 +67,12 @@ read:
 
   sub rsp, 8                ; realign stack to % 16
 
+
+  ; find standard deviation using running total
+  
+
+
+  ; we actually don't gaf about printing these to file... 
   ; place float in xmm0 register, type to format string from and call 
   movss xmm0, [r12 + 8]
   cvtss2sd xmm0, xmm0       ; convert to double 
@@ -93,13 +97,11 @@ fileError:
 readError:
   ; Exit Due to Error
   mov rdi, 1                 ; set return code
-  ; pop r12                    ; realign stack
   mov rax, 60                ; sys_exit call
   syscall
 eof: 
 
   ; Handle Exit Gracefully
   xor rdi, rdi               ; set return code
-  ; pop r12                    ; realign stack
   mov rax, 60                ; sys_exit call
   syscall

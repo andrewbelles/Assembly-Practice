@@ -1,0 +1,8 @@
+# ignore helper c functions for file conversion 
+*.c 
+
+# ignore .dat files 
+*.dat 
+
+# 
+findoutliers*
