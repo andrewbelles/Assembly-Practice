@@ -14,7 +14,7 @@ int main(int argc, char *argv[]) {
 
   char filenames[MAX_CT][MAX_LEN];
   FILE *read, *write;
-  float buffer;
+  double buffer;
 
   for (int i = 0; i < argc - 1; ++i) {
     read = fopen(argv[i + 1], "r");
@@ -47,8 +47,8 @@ int main(int argc, char *argv[]) {
     }
 
     // Iterate through file 
-    while (fscanf(read, "%f", &buffer) != EOF) {
-      fwrite(&buffer, sizeof(float), 1, write);
+    while (fscanf(read, "%lf", &buffer) != EOF) {
+      fwrite(&buffer, sizeof(double), 1, write);
     }
 
     fclose(write);

@@ -1,3 +1,5 @@
+.gitignore
+
 # ignore helper c functions for file conversion 
 *.c 
 
