@@ -5,16 +5,17 @@ section .rodata
   print_iter db  "Iter    : %s",  6, 0
   print_sigma db "Sigma   : %s", 10, 0
   print_mean db  "Mean    : %s", 10, 0
+  print_coun db  "Count   : %s", 10, 0
   print_outc db  "Outliers: %s", 10, 0
 
-  print_newl db " ", 0
   print_test db "Test", 0
+  print_newl db " ", 0
 
   ; test for andpd for absolute value 
   align 16
   mask dq 0x7FFFFFFFFFFFFFF, 0x7FFFFFFFFFFFFFF
   
-  format_float db "%f", 0 
+  format_float db "%f", 0  
   format_int   db "%d", 0
   format_str   db "%s", 10, 0
 
@@ -187,7 +188,7 @@ eofHandle:
   call sprintf
 
   ; set format and variable to print and call
-  lea rdi, [print_outc]
+  lea rdi, [print_coun]
   lea rsi, [r12 + 172]
   mov rax, 0
   call printf
@@ -209,7 +210,7 @@ eofHandle:
   mov r10, 34
   mov r8, -1
   xor r9, r9
-  syscall                    
+  syscall
 
   test rax, rax
   js error 
@@ -266,11 +267,6 @@ eofHandle:
 
 checkEnd: 
 
-  lea rdi, [format_str]
-  lea rsi, [print_test]
-  xor rax, rax 
-  call printf  
-
   ; first iter check
   cmp r8, 0
   je outlierLoop
@@ -284,7 +280,7 @@ checkEnd:
 outlierLoop:
 
   ; counters reset per iteration
-  xor r8, r8                      ; iter counter
+  xor r11, r11
   xor rcx, rcx                    ; value counter  
   xor r9, r9                      ; outlier counter
   xor r10, r10                    ; clean counter
@@ -320,6 +316,10 @@ readLoop:
   
   ; push counters onto stack  
   push rcx
+  push r8
+  push r9
+  push r10 
+  push r11
 
   ; read double to agggregate heap
   mov rax, 0                      ; sys_read
@@ -330,6 +330,10 @@ readLoop:
 
   ; revert values 
   pop rcx 
+  pop r8 
+  pop r9 
+  pop r10
+  pop r11
 
   ; place value in array r13
   ; r13[i] = [r13 + rcx * 8]
@@ -339,26 +343,29 @@ readLoop:
   movsd [r13 + rsi], xmm0         ; iterate array r13 
 
   inc rcx 
-  
+
   ; check if read the count in file 
   cmp rcx, [r12 + 80]
   jne readLoop                     ; loop till eof 
 
-  je  arrayLoop 
+  je arrayLoop 
 
 arrayLoop:
   ; r8 loops to previous count (stored in rcx)
-  
+
   ; load value from array. if abs(array - previous aggregate mean) < threshold * previous sigma add to outliers
   mov rsi, 8
-  imul rsi, r8
+  imul rsi, r11
   movsd xmm0, [r13 + rsi]
+
+  inc r11                          ; full counter 
 
   subsd xmm0, [r12 + 48]
   movapd xmm1, [mask]
-  andpd xmm0, xmm1                       ; abs(residual)
+  andpd xmm0, xmm1                 ; abs(residual)
 
-  ucomisd xmm0, [r12 + 128] 
+  movsd xmm1, [r12 + 128]
+  ucomisd xmm0, xmm1 
   jg outlier
   
   ; load into clean arr
@@ -370,7 +377,7 @@ arrayLoop:
   inc r9                           ; iterate clean count 
 
   jmp calcValues
-  
+
 outlier:
 
   ; index outlier array and place value within it
@@ -386,6 +393,7 @@ outlier:
   push r8
   push r9
   push r10
+  push r11 
 
   ; sprintf call
   movsd xmm0, [r15 + rbp]
@@ -394,39 +402,52 @@ outlier:
   mov rax, 1
   call sprintf
 
-  ; revert registers  
+  ; revert registers 
+  pop rcx
+
+  lea rdi, [r12 + 172]
+  
+  mov [r12 + 212], rcx
+
+  xor rcx, rcx
+
+  ; count the number of characters in string to print
+str_len:
+
+  ; compare each character to 0 
+  cmp byte [rdi + rcx], 0
+  je write_out
+  inc rcx
+  jmp str_len                      ; loop if not end
+
+write_out:
+
+  ; sys_write string to file
+  mov rax, 1
+  mov rdi, [r12 + 256]             ; outliers.txt file
+  lea rsi, [r12 + 172]             ; string formatted by sprintf
+  mov rdx, rcx                     ; size of string  
+  
+  push rcx
+
+  syscall
+
+  ; add newline after 
+  lea rsi, [print_newl]
+  mov rdx, 1
+  syscall
+
   pop rcx
   pop r8
   pop r9
   pop r10
-
-  lea rdi, [r12 + 172]
-  xor rcx, rcx 
-  
-  ; count the number of characters in string to print
-str_len: 
-
-  ; compare each character to 0 
-  cmp byte [rdi + rcx], 0 
-  je write_out 
-  inc rcx 
-  jmp str_len                      ; loop if not end 
-
-write_out:
-
-  ; printf string to file
-  mov rax, 1 
-  mov rdi, [r12 + 256]             ; outliers.txt file
-  lea rsi, [r12 + 172]             ; string formatted by sprintf
-  mov rdx, rcx                     ; size of string  
-  syscall
+  pop r11
 
   jmp arrayLoop 
 
 calcValues: ; new aggregate values are placed in a new region on the aggregate heap
 
   ; find standard deviation using running total
-  inc rcx 
 
   ; set value and curr mean
   movsd xmm0, [r14 + rbp]
@@ -435,11 +456,11 @@ calcValues: ; new aggregate values are placed in a new region on the aggregate h
   subsd xmm0, xmm1                 ; delta = value - mean
   movsd [r12 + 172], xmm0          ; store delta in shared/temp memory
 
-  cmp rcx, 0 
+  cmp r9, 0 
   je error
 
   ; get running mean from delta / count 
-  cvtsi2sd xmm1, r10               ; load clean count as a double          
+  cvtsi2sd xmm1, r9               ; load clean count as a double          
   divsd xmm0, xmm1
   addsd xmm0, [r12 + 144]
   movsd [r12 + 144], xmm0          ; mean += delta / count  
@@ -451,12 +472,15 @@ calcValues: ; new aggregate values are placed in a new region on the aggregate h
   addsd xmm0, [r12 + 96]
   movsd [r12 + 96], xmm0           ; curr M2  
 
-  cmp rcx, [r12 + 80]              ; check if the value counter equals total count
+  cmp r11, [r12 + 80]              ; check if the value counter equals total count
   je printOutput
 
   jmp arrayLoop
 
 printOutput:
+
+  ; finished iteration
+  inc r8
 
   ; pull final M2 and store back in same memory location 
   movsd xmm0, [r12 + 96]  
